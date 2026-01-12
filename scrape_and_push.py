@@ -32,39 +32,40 @@ LOG_FILE = os.path.join(LOG_DIR, "web_scrap_log.txt")
 CSV_FILE = os.path.join(DATA_DIR, f"data_{NOW}.csv")
 
 def log_message(message):
+    print(message) # This prints to the GitHub Actions Console
     with open(LOG_FILE, "a") as f:
-        f.write(
-            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}\n"
-        )
+        f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {message}\n")
+
 def handle_cookie_consent(driver, wait):
     try:
         cookie_button = wait.until(
             EC.element_to_be_clickable((By.ID, "cookie_action_close_header"))
         )
         driver.execute_script("arguments[0].click();", cookie_button)
-        log_message("Cookie popup closed")
+        log_message("✅ Cookie popup closed")
     except Exception:
-        log_message("No cookie popup found")
-
+        log_message("ℹ️ No cookie popup found (skipping)")
 
 def scrape_and_push():
-    log_message("Job started")
+    log_message(f"🚀 Job started at {NOW}")
 
     # --- Chrome setup ---
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080") 
 
     driver = webdriver.Chrome(service=Service(), options=options)
     wait = WebDriverWait(driver, 20)
 
     try:
+        log_message(f"🌐 Opening URL: {URL}")
         driver.get(URL)
         handle_cookie_consent(driver, wait)
-        time.sleep(2)
+        time.sleep(3)
 
+        log_message("⏳ Setting table to show all rows...")
         # Show all rows
         option = wait.until(
             EC.element_to_be_clickable(
@@ -72,8 +73,9 @@ def scrape_and_push():
             )
         )
         option.click()
-        time.sleep(2)
+        time.sleep(3)
 
+        log_message("📸 Capturing table data...")
         table = wait.until(
             EC.presence_of_element_located((By.ID, "latestdiclosuresEquities"))
         )
@@ -87,37 +89,52 @@ def scrape_and_push():
         ]
 
         df = pd.DataFrame(rows, columns=headers)
+        
+        # Checkpoint: Did we actually get data?
+        if df.empty:
+            raise ValueError("The scraped dataframe is empty! The website might not have loaded correctly.")
+        
+        log_message(f"📊 Successfully scraped {len(df)} rows.")
+
+        # Data Cleaning
         df["Company"] = df["Company"].str.split(r"\s|\[", n=1).str[0]
         df.to_csv(CSV_FILE, index=False)
-        log_message("CSV saved")
+        log_message(f"💾 CSV saved locally to {CSV_FILE}")
 
         # --- Google Sheets ---
+        log_message("🔐 Connecting to Google Sheets...")
         scope = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ]
 
+        if "GOOGLE_CREDS_JSON" not in os.environ:
+            raise EnvironmentError("GOOGLE_CREDS_JSON secret not found in environment variables!")
+
         creds_dict = json.loads(os.environ["GOOGLE_CREDS_JSON"])
         creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
         client = gspread.authorize(creds)
 
+        log_message("📂 Opening spreadsheet 'NGX Daily Equity Prices'...")
         sheet = client.open("NGX Daily Equity Prices").sheet1
+        
+        log_message("🧹 Clearing old data and updating sheet...")
         sheet.clear()
-        sheet.update([df.columns.tolist()] + df.values.tolist())
+        
+        # Format data for gspread (headers + data rows)
+        data_to_upload = [df.columns.tolist()] + df.values.tolist()
+        sheet.update(data_to_upload)
 
-        log_message("Google Sheet updated")
+        log_message("✅ Google Sheet updated successfully!")
 
     except Exception as e:
-        log_message(f"ERROR: {e}")
+        log_message(f"❌ CRITICAL ERROR: {e}")
+        # THIS IS THE KEY: We re-raise the error so GitHub Actions sees the failure
+        raise e
 
     finally:
         driver.quit()
-        log_message("Browser closed")
+        log_message("🔌 Browser closed. Job finished.")
 
 if __name__ == "__main__":
-    with open(LOG_FILE, "w") as f:
-        f.write(f"{NOW} - Log started\n")
-
     scrape_and_push()
-
-
