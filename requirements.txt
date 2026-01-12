@@ -1,1 +1,5 @@
-
+pandas
+beautifulsoup4
+selenium
+gspread
+google-auth
