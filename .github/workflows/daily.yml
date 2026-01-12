@@ -28,4 +28,4 @@ jobs:
         env:
           GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
         run: |
-          python ngx_scraper.py
+          python scrape_and_push.py
