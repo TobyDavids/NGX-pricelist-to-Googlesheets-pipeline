@@ -1,0 +1,43 @@
+name: Keepalive Workflow
+
+# Prevents GitHub from disabling the scheduled NGX Daily Scraper after 60 days
+# of repo inactivity. Runs weekly, makes a no-op commit only when the repo has
+# been quiet for a while, and re-enables the daily scraper if GitHub disabled it.
+
+on:
+  schedule:
+    # Every Monday at 09:00 UTC. Well under GitHub's 60-day inactivity window.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write       # needed to re-enable the daily scraper workflow
+  contents: write      # needed to push the keepalive commit
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Touches the repo with an empty commit only if the last commit is older
+      # than `time_elapsed` days. Default is 50, leaving a 10-day safety margin
+      # before GitHub's 60-day disable threshold.
+      - name: Keepalive commit
+        uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          time_elapsed: 50
+          committer_username: "github-actions[bot]"
+          committer_email: "41898282+github-actions[bot]@users.noreply.github.com"
+          commit_message: "chore: keepalive ping to prevent workflow auto-disable"
+
+      # Belt-and-braces: if GitHub already disabled the scraper, turn it back on.
+      - name: Re-enable NGX Daily Scraper
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow enable daily.yml --repo "$GITHUB_REPOSITORY" || \
+            echo "Workflow already enabled or not found — continuing."
