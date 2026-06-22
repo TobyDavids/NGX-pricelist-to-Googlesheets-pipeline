@@ -1,9 +1,7 @@
 name: Keepalive Workflow
-
 # Prevents GitHub from disabling the scheduled NGX Daily Scraper after 60 days
 # of repo inactivity. Runs weekly, makes a no-op commit only when the repo has
 # been quiet for a while, and re-enables the daily scraper if GitHub disabled it.
-
 on:
   schedule:
     # Every Monday at 09:00 UTC. Well under GitHub's 60-day inactivity window.
@@ -24,15 +22,18 @@ jobs:
           fetch-depth: 1
 
       # Touches the repo with an empty commit only if the last commit is older
-      # than `time_elapsed` days. Default is 50, leaving a 10-day safety margin
-      # before GitHub's 60-day disable threshold.
+      # than 50 days. Leaves a 10-day safety margin before GitHub's 60-day disable threshold.
       - name: Keepalive commit
-        uses: gautamkrishnar/keepalive-workflow@v2
-        with:
-          time_elapsed: 50
-          committer_username: "github-actions[bot]"
-          committer_email: "41898282+github-actions[bot]@users.noreply.github.com"
-          commit_message: "chore: keepalive ping to prevent workflow auto-disable"
+        run: |
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          LAST_COMMIT_AGE=$(( ( $(date +%s) - $(git log -1 --format=%ct) ) / 86400 ))
+          if [ "$LAST_COMMIT_AGE" -ge 50 ]; then
+            git commit --allow-empty -m "chore: keepalive ping to prevent workflow auto-disable"
+            git push
+          else
+            echo "Last commit was $LAST_COMMIT_AGE days ago — no keepalive needed."
+          fi
 
       # Belt-and-braces: if GitHub already disabled the scraper, turn it back on.
       - name: Re-enable NGX Daily Scraper
